@@ -1,120 +1,64 @@
-# Jupyter table of contents (TOC) generation support for Visual Studio Code
+# Simplified table of contents for Jupyter Notebooks
 
-  - [1. Summary](#1-summary)
-  - [2. Example](#2-example)
-  - [3. Features](#3-features)
-  - [4. Usage](#4-usage)
-    - [4.1. Some details and tips](#41-some-details-and-tips)
-  - [5. Supported settings](#5-supported-settings)
-  - [6. Known issues](#6-known-issues)
-  - [7. About](#7-about)
+This VS Code extension based off of [xelad0m/vscode-jupyter-toc](https://github.com/xelad0m/vscode-jupyter-toc) is customized for [ValidMind's Jupyter Notebook conventions](https://github.com/validmind/validmind-library/tree/main/notebooks). 
 
-## 1. Summary 
+The extension functions more or less the same with the following differences (**tl;dr** our version allows us to add, udpate, and remove ToCs with ease without needing to hack-replace anchor links and manually adjust tables and anchors if the notebooks were ever edited):
 
-Generatation of a **table of contents** (TOC) for your Jupyter notebook in [Visual Studio Code](https://code.visualstudio.com/).
+<details>
+  <summary><b>Version comparison</b></summary>
+  
+| Original ver. | Simplified ver. | Notes | Reason for fix |
+|---|---|---|---|
+| ![](screenshots/old-anchors.png) ![](screenshots/old-top-anchor.png) | ![](screenshots/new-anchors.png) | Page anchors set above header instead of inset after markdown heading, no reverse anchors to top in page anchors | Original version was not parsed correctly by Quarto and broke the native ToC, required us to manually find-replace anchor link formatting in each notebook after ToC generation, if notebooks were modified the ToC/anchors would need to be edited manually |
+| ![](screenshots/old-toc-top.png) |![](screenshots/new-toc.png)| Top/reverse anchor in table of contents cell removed, default heading changed | Required us to hack the default settings to remove the icon-anchor back up to the table of contents |
+| ![](screenshots/old-settings.png) | ![](screenshots/new-settings.png) ![](screenshots/content-hidden-html.png) ![](screenshots/content-hidden-html-cell.png)| Reduced global settings, defaults set to ValidMind conventions; added a setting for hiding the embedded table of contents cell using [Quarto conditional content](https://quarto.org/docs/authoring/conditional.html) | Required us to adjust the default settings to accommodate for the default structuring of ValidMind Juptyer Notebooks; embedded table of contents cell always rendered by Quarto  |
+</details>
 
-Visual Studio Code has "outline" feature to navigate through the jupyter notebook markdown headers. But if this feature is not enough this extension let you to generate interactive TOC directly in jupyter notebook as a separate markdown cell.
 
-## 2. Example
+## User guide
 
-**Generating** table of contents    
-<img src="https://raw.githubusercontent.com/xelad0m/vscode-jupyter-toc/main/images/generate.gif" alt="generate" width="700px">
+Refer to the [User guide](/installation/README.md) for installation and usage instructions.
 
-**Removing** table of contents    
-<img src="https://raw.githubusercontent.com/xelad0m/vscode-jupyter-toc/main/images/remove.gif" alt="remove" width="700px">
+## Updating the extension
 
-**Configuring** and **updating** table of contents, for example:  
-- changing header levels to collect to TOC from 1-6 to 1-2  
-- adding numbering  
+### Key files
 
-<img src="https://raw.githubusercontent.com/xelad0m/vscode-jupyter-toc/main/images/config.gif" alt="config" width="700px">
+- **[`src/extension.ts`](src/extension.ts)** — This TypeScript code controls the core functionality of the extension.
+- **[`package.json`](package.json)** — This JSON file includes the versioning and the setup for the VS Code global settings display under [`contributes.configuration`](https://code.visualstudio.com/api/references/contribution-points#contributes.configuration). 
 
-**Navigating** over jupyter notebook  
-<img src="https://raw.githubusercontent.com/xelad0m/vscode-jupyter-toc/main/images/navigate.gif" alt="navigate" width="700px">
+### Before you begin
 
-## 3. Features 
+You'll need to install the dependencies required for you to work on the extension for the first time:
 
-* Generate a table of contents based on markdown titles
-* Update an existing TOC when generate it again
-* Support not latin headers in Jupyter notebook
-* Insert anchors both on your elements of TOC and on headers
-    * backward links from document titles to table of contents
-* Auto-saving when a TOC is generated 
-* Configurable:
-    * Levels of headers to numerate and collect to TOC
-    * Numbering your table of contents and headers
-    * Anchoring you table of contents and headers
-    * Display name for the table of contents
-    * Save your document when table of contents generated
+```bash
+npm install
+```
 
-## 4. Usage
+Then install [`@vscode/vsce`](https://github.com/microsoft/vscode-vsce) locally in your project directory in preparation for packaging:
 
-When you open any jupyter notebook all commands are available as **Editor Toolbar menu** items under the overflow menu **(...)**.
+```bash
+npm install @vscode/vsce
+```
 
-<img src="https://raw.githubusercontent.com/xelad0m/vscode-jupyter-toc/main/images/menu.png" alt="menu" width="700px">
+### Update the version
 
-Also you can use **comand palette**
+Before you re-package the extension, make sure to bump the version so we can keep track of changes:
 
-* Open any Jupyter notebook
-* Open the command palette (`Ctrl+Shift+P`)
+```bash
+npm version patch
+```
 
-Adding new or updating existing table of contents:
+### Export the extension
 
-* Start typing "**Generate**"
-* Choose "**Jupyter: Generate table of contents**"
-  * New cell with TOC for notebook will be inserted before current selected cell or existing TOC will be updated
+Compile the code:
 
-Removing table of contents:
+```bash
+npm run compile
+```
 
-* Start typing "**Remove**"
-* Choose "**Jupyter: Remove table of contents**"
-  * Notebook cell with table of contents will be removed from notebook. All made formatting of headers such as numbering and anchors will be removed too.
+Since this extension is for internal use and we don't want to publish it to the VS Code marketplace, we'll package the extension and move the exported file into the `installation` directory:
 
-### 4.1. Some details and tips
+```bash
+npx vsce package && mv *.vsix installation
+```
 
-1. **If you have used versions of this extension less than `v0.2.0`, you may need to call the `Remove table of contents` command before updating/creating a new table of contents, because the format of the table of contents has changed slightly.**
-2. Jupyter notebook cell with generated TOC on update replaces with new one so there is no sence to place in it any other text data.
-3. Default settings for TOC generation can be changed via `File - Preferences - Settings - Jupyter TOC` section. Or choose this extension in Extension browser (`Ctrl+Shift+X`), than press `Manage` button, choose `Extension settings`.
-4. The settings for a particular Jupyter notebook can be overrided by editing the settings directly in the bottom of cell with the table of contents. These settings will have the highest priority for the subsequent generation/update of the table of contents in this document.
-5. If you deleted a cell with TOC, but the headings remained with links to the TOC, just use command `Remove table of contents`. It will remove unnecessary links from the headers.
-
-## 5. Supported settings
-
-Key|Expected Values|Default|Description
-:---|:---:|:---:|:---
-`jupyter.toc.tableOfContentsHeader`|`string`|**Table of contents**|Defines the name for the table of contents.
-`jupyter.toc.autoSave`|`boolean`|`false`|Automatically save the notebook after creating, updating, or deleting the table of contents.
-`jupyter.toc.numbering`|`boolean`|`false`|Enumerate headers of the jupyther notebook.
-`jupyter.toc.flat`|`boolean`|`false`|Flat table of contents without intendentions and list markers. It will better looks when use it with `jupyter.toc.numbering` is enabled.
-`jupyter.toc.anchors`|`boolean`|`true`|Add links from the table of contents elements to the headers in the document.
-`jupyter.toc.minHeaderLevel`|`1-6`|`1`|Defines the minimum level of the header to be collected in the table of contents.
-`jupyter.toc.maxHeaderLevel`|`1-6`|`6`|Defines the maximum level of the header to be collected in the table of contents.
-`jupyter.toc.reverseAnchorsStyle`|`["title", "arrow1", "arrow2", "arrow3", "arrow4", "custom"]`|`title`|Styles of links from titles to the table of contents.
-`jupyter.toc.customReverseAnchor`|`string`|`&#9757;`|Defines anchor symbol or string to use as link from headers to the TOC. By default its (&#9757;).
-
-You can choose styles of links from titles to the table of contents which looks like:
-#### [title](https://marketplace.visualstudio.com/items?itemName=xelad0m.jupyter-toc)
-- (default) Using whole title as reverse link. If some of titles allready have links they will be displayed with `arrow1` style, like (**[Title](https://marketplace.visualstudio.com/items?itemName=xelad0m.jupyter-toc)** [&#8593;](https://marketplace.visualstudio.com/items?itemName=xelad0m.jupyter-toc)) or (**Title [with](https://marketplace.visualstudio.com/items?itemName=xelad0m.jupyter-toc) links** [&#8593;](https://marketplace.visualstudio.com/items?itemName=xelad0m.jupyter-toc))
-#### arrow1 [&#8593;](https://marketplace.visualstudio.com/items?itemName=xelad0m.jupyter-toc)
-- arrow up link at the end of title
-#### [&#8593;](https://marketplace.visualstudio.com/items?itemName=xelad0m.jupyter-toc) arrow2
-- arrow up link at the begining of title
-#### arrow3 [&#9650;](https://marketplace.visualstudio.com/items?itemName=xelad0m.jupyter-toc)
-- arrow up link at the end of title
-#### [&#9650;](https://marketplace.visualstudio.com/items?itemName=xelad0m.jupyter-toc) arrow4
-- arrow up link at the begining of title
-#### custom [&#9757;](https://marketplace.visualstudio.com/items?itemName=xelad0m.jupyter-toc)
-- user defined symbol or string at the end of title
-
-## 6. Known issues
-
-1. Anchor navigation from TOC to headers and back does not work on github due to peculiarity of rendering of local jupyter notebook links there, but with native `jupyter notebook`/`jupyter-lab` it works well.
-2. Due to complicated VS Code notebook editor scrolling functionality newly inserted or updated TOC could scroll not exactly to titles. Reopening of the document solves the problem, links between TOC and titles will work exactly as expected.
-
-## 7. About
-
-This extension is based on [Markdown TOC](https://marketplace.visualstudio.com/items?itemName=joffreykern.markdown-toc) Visual Studio Code extension by [Joffrey Kern](https://github.com/joffreykern/vscode-markdown-toc) and [Kiran Rao](https://github.com/curioustechizen/vscode-markdown-toc).
-
-Special thanks to [Your First Extension](https://code.visualstudio.com/api/get-started/your-first-extension) manual.
-
-File bugs, feature requests in [GitHub Issues](https://github.com/xelad0m/vscode-jupyter-toc/issues).

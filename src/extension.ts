@@ -13,25 +13,25 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Use the console to output diagnostic information (console.log) and errors (console.error)
     // This line of code will only be executed once when your extension is activated
-    console.log('Congratulations, your extension "jupyter-toc" is now active!');
+    console.log('Congratulations, your extension "jn-toc" is now active!');
 
     // The command has been defined in the package.json file
     // Now provide the implementation of the command with registerCommand
     // The commandId parameter must match the command field in package.json
-    let command1 = vscode.commands.registerCommand('jupyter-toc.jupyterToc', () => {
+    let command1 = vscode.commands.registerCommand('jn-toc.jupyterToc', () => {
         if (vscode.window.activeNotebookEditor?.notebook !== undefined) {
             console.log("Start building TOC...")
             new TocGenerator().process();
         }
-        console.log("Command 'jupyter-toc.jupyterToc' executed");
+        console.log("Command 'jn-toc.jupyterToc' executed");
     });
 
-    let command2 = vscode.commands.registerCommand('jupyter-toc.jupyterUnToc', () => {
+    let command2 = vscode.commands.registerCommand('jn-toc.jupyterUnToc', () => {
         if (vscode.window.activeNotebookEditor?.notebook !== undefined) {
             console.log("Start removing TOC...")
             new TocGenerator().process(true);
         }
-        console.log("Command 'jupyter-toc.jupyterUnToc' executed");
+        console.log("Command 'jn-toc.jupyterUnToc' executed");
     });
     
     context.subscriptions.push(command1);
@@ -45,7 +45,7 @@ export function deactivate() {};
 export class TocGenerator {
     private _config: TocConfiguration = new TocConfiguration();
     private _tocDisclimer: string = "<!-- THIS CELL WILL BE REPLACED ON TOC UPDATE. DO NOT WRITE YOUR TEXT IN THIS CELL -->";
-    private _tocHeaderAnchor: string = "<a id='toc0_'></a>";
+    // private _tocHeaderAnchor: string = "<a id='toc0_'></a>";
     private _endAnchor: string = "</a>";
     
     process(remove: boolean = false){
@@ -84,10 +84,20 @@ export class TocGenerator {
                         if (!remove) { // format filtered levels of headers
                             headers.ForEach(header => {	/* edit cell content for each header in current cell */
                                 if (header != undefined && header.cellNum != undefined && header.cellNum == cellIndex) {                                
-                                    let ht = "#".repeat(header.origLevel);
-                                    let title = this.anchorHeader(header); // anchor header
-                                    title = (this._config.Numbering) ? `${ht} ${header.numberingString} ${title}` : `${ht} ${title}`; // number header
-                                    docArray[header.lineNumber] = title;                
+                                    let ht = "#".repeat(header.origLevel); // Generate Markdown header level
+
+                                    // Use anchorHeader to generate only the anchor, not the full title
+                                    let anchor = this._config.Anchor ? `<a id='${header.anchor}'></a>` : ""; // Anchor separately
+                                    let title = header.title; // Keep the title clean without additional anchors
+                                    
+                                    // Construct the header line with optional numbering
+                                    let headerLine = (this._config.Numbering)
+                                        ? `${ht} ${header.numberingString} ${title}`
+                                        : `${ht} ${title}`;
+                                    
+                                    // Combine the anchor and header line, ensuring correct formatting
+                                    docArray[header.lineNumber] = `${anchor}\n\n${headerLine}`;  
+
                                     isCellUpdate = true;
                                 }
                             });	
@@ -101,21 +111,68 @@ export class TocGenerator {
                     }
                 });
 
-                if (remove) { // remove TOC cell
+                if (remove) { // Remove TOC cell and anchors
+                    cells.forEach((cell, cellIndex) => { // Iterate through cells with proper indexing
+                        if (vscode.NotebookCellKind[cell.kind] == 'Markup') {
+                            let docText = cell.document.getText();
+                            let docArray: string[] = docText.split(/\r?\n/); // Explicitly type as string[]
+                            let isCellUpdate = false;
+                
+                            // Restore headers and remove anchors
+                            lineHeaders.ForEach(header => {
+                                if (header != undefined && header.cellNum != undefined && header.cellNum == cellIndex) {
+                                    let ht = "#".repeat(header.origLevel);
+                                    let lineText = `${ht} ${header.title}`;
+                                    docArray[header.lineNumber] = lineText; // Restore original header text
+                                    isCellUpdate = true;
+                                }
+                            });
+                
+                            // Remove lines with anchor links (e.g., <a id='tocX_'></a>) and clean up empty lines
+                            docArray = docArray.reduce<string[]>((acc, line) => {
+                                const isAnchor = line.trim().match(/^<a id='toc\d+_'><\/a>$/);
+                                const isEmpty = line.trim() === '';
+                
+                                // If the line is not an anchor, process further
+                                if (!isAnchor) {
+                                    if (!(isEmpty && acc[acc.length - 1]?.trim() === '')) {
+                                        acc.push(line); // Avoid consecutive empty lines
+                                    }
+                                }
+                                return acc;
+                            }, []);
+                
+                            // Remove leading empty lines
+                            while (docArray.length > 0 && docArray[0].trim() === '') {
+                                docArray.shift();
+                            }
+                
+                            // Reassemble the cell content
+                            docText = docArray.join("\n");
+                
+                            if (isCellUpdate && editor != undefined) {
+                                this.updateCell(uri, docText, cellIndex);
+                            }
+                        }
+                    });
+                
+                    // Remove the TOC cell
                     if (this._config.TocCellNum != undefined) {
-                        this.deleteCell(uri, this._config.TocCellNum);	
+                        this.deleteCell(uri, this._config.TocCellNum);
+                        infoMessage = `Table of contents removed from Cell #${this._config.TocCellNum}`;
                     }
-                } else { // insert or update TOC cell
-                    if (this._config.TocCellNum == undefined) { // if there is no TOC in notebook
-                        let selected = (editor.selection != undefined) ? editor.selection.start : 0; // ? rarely it could be no selection
-                        this.insertCell(uri, tocSummary, selected); // insert before selected cells
-                        infoMessage = `Table of contents inserted as Cell #${selected}`;	
-                    } else { // else update existing TOC (first if many) by replace
+                } else { // Original TOC updating/inserting logic
+                    // Update or insert the TOC cell as before
+                    if (this._config.TocCellNum == undefined) {
+                        let selected = (editor.selection != undefined) ? editor.selection.start : 0;
+                        this.insertCell(uri, tocSummary, selected);
+                        infoMessage = `Table of contents inserted as Cell #${selected}`;
+                    } else {
                         let tocCellNum = this._config.TocCellNum;
                         this.updateCell(uri, tocSummary, tocCellNum);
-                        infoMessage = `Table of contents updated at Cell #${tocCellNum}`;	
+                        infoMessage = `Table of contents updated at Cell #${tocCellNum}`;
                     }
-                }
+                }                
 
                 // save notebook
                 if(this._config.AutoSave) {
@@ -127,40 +184,6 @@ export class TocGenerator {
                 
             return Promise.resolve();
         }
-    }
-
-    private anchorHeader(header: Header): string {
-        let title = header.title;
-
-        if (this._config.Anchor) {
-            let anchor = `<a id='${header.anchor}'></a>`;
-
-            switch ( this._config.AnchorStyle ) {
-                case "arrow1":
-                    title = `${anchor}${title} [&#8593;](#toc0_)`;
-                    break;
-                case "arrow2":
-                    title = ` [&#8593;](#toc0_) ${anchor}${title}`;
-                    break;
-                case "arrow3":
-                    title = `${anchor}${title} [&#9650;](#toc0_)`;
-                    break;
-                case "arrow4":
-                    title = ` [&#9650;](#toc0_) ${anchor}${title}`;
-                    break;
-                case "title":
-                    title = (header.isContainLinks) ? `${anchor}${title} [&#8593;](#toc0_)` : `${anchor}[${title}](#toc0_)`;
-                    break;
-                case "custom":
-                    title = `${anchor}${title} [${this._config.CustomAnchor}](#toc0_)`;
-                    break;   
-                default: 
-                    title = `${anchor}${title} [&#8593;](#toc0_)`;
-                    break;
-            }
-        }
-
-        return title;
     }
 
     private async deleteCell(uri: vscode.Uri, cellNum: number) {
@@ -207,8 +230,8 @@ export class TocGenerator {
                         readingConfiguration = true;
                         tocConfiguration.TocCellNum = cellIndex;
                         
-                        let tocHeader = docArray[0].trim();  /* preserve modified header of Toc */
-                        tocConfiguration.TocHeader = tocHeader.replace(this._tocHeaderAnchor, "");
+                        // let tocHeader = docArray[0].trim();  /* preserve modified header of Toc */
+                        // tocConfiguration.TocHeader = tocHeader.replace(this._tocHeaderAnchor, "");
                         continue;
                     }
 
@@ -321,20 +344,18 @@ export class TocGenerator {
     }
 
     // build string representation of table of contents
-    buildSummary(headers : List<Header>) : string {
-        let tocHeaderAnchor =  (this._config.Anchor) ? this._tocHeaderAnchor : "";
-        let tocSummary : string = this._config.TocHeader + tocHeaderAnchor + "    \n";
+    buildSummary(headers: List<Header>): string {
+        let tocSummary: string = this._config.TocHeader + "    \n";
+    
+        if (!this._config.showHtml) {
+            tocSummary = "::: {.content-hidden when-format=\"html\"}\n" + tocSummary;
+        }
         
         headers.ForEach((header, idx) => {
             if (header != undefined) {
-                let title = header.cleanTitle;  // we want to push to anchored TOC the header without links
+                let title = header.cleanTitle; 
                 let tocLine = "";
-                let indent = "";
-
-                if (!this._config.Flat) {
-                    indent = (idx == 0) ? "" : "  ".repeat(header.level - 1);    // first header never indents or it will be ugly rendered in md list
-                    indent = indent.concat("- ");
-                }
+                let indent = this._config.Flat ? "" : "  ".repeat(header.level - 1).concat("- ");
                 
                 if (this._config.Numbering && this._config.Anchor) {
                     tocLine = `${indent}${header.numberingString} [${title}](#${header.anchor})`;
@@ -346,18 +367,21 @@ export class TocGenerator {
                     tocLine = `${indent}${title}`;
                 }
                 
-                // finalize line
-                if(tocLine != null && tocLine != ""){
-                    tocSummary = tocSummary.concat(tocLine + "    \n");	// tab or 4 spaces (needed by deep levels)
+                if (tocLine) {
+                    tocSummary = tocSummary.concat(tocLine + "    \n");
                 }
             }
         });
-  
+    
+        if (!this._config.showHtml) {
+            tocSummary += "\n:::";
+        }
+        
         tocSummary = tocSummary.concat("\n" + this._config.Build());
         tocSummary = tocSummary.concat("\n" + this._tocDisclimer);
-    
+        
         return tocSummary;
-    }
+    }    
 
     /**
      * 
@@ -464,8 +488,9 @@ class TocConfiguration {
     public MaxLevel: number;
     public AutoSave: boolean;
     public AnchorStrings: Array<string>;    // 2 hardcoded and 1 custom strings for anchors 
-    public StartLine: string = "<!-- vscode-jupyter-toc-config";
-    public EndLine: string = "/vscode-jupyter-toc-config -->";
+    public StartLine: string = "<!-- jn-toc-notebook-config";
+    public EndLine: string = "/jn-toc-notebook-config -->";
+    public showHtml: boolean;
 
     public TocCellNum?: number;             // ? because we cant set it in constructor
   
@@ -476,16 +501,17 @@ class TocConfiguration {
     private _maxLevelKey: string 	= "maxLevel=";
   
     constructor() {
-        this.TocHeader = vscode.workspace.getConfiguration('jupyter.toc').get('tableOfContentsHeader', "**Table of contents**");
-        this.Numbering = vscode.workspace.getConfiguration('jupyter.toc').get('numbering', false);
-        this.Flat = vscode.workspace.getConfiguration('jupyter.toc').get('flat', false);
-        this.Anchor = vscode.workspace.getConfiguration('jupyter.toc').get('anchors', true);
-        this.AnchorStyle = vscode.workspace.getConfiguration('jupyter.toc').get('reverseAnchorsStyle', "arrow1");
-        this.CustomAnchor = vscode.workspace.getConfiguration('jupyter.toc').get('customReverseAnchor', "&#9757;");
-        this.MinLevel = vscode.workspace.getConfiguration('jupyter.toc').get('minHeaderLevel', 1);
-        this.MaxLevel = vscode.workspace.getConfiguration('jupyter.toc').get('maxHeaderLevel', 6);
-        this.AutoSave = vscode.workspace.getConfiguration('jupyter.toc').get('autoSave', false);
+        this.TocHeader = vscode.workspace.getConfiguration('jupyterNotebook.tableOfContents').get('tableOfContentsHeader', "## Contents");
+        this.Numbering = vscode.workspace.getConfiguration('jupyterNotebook.tableOfContents').get('numbering', false);
+        this.Flat = vscode.workspace.getConfiguration('jupyterNotebook.tableOfContents').get('flat', false);
+        this.Anchor = vscode.workspace.getConfiguration('jupyterNotebook.tableOfContents').get('anchors', true);
+        this.AnchorStyle = vscode.workspace.getConfiguration('jupyterNotebook.tableOfContents').get('reverseAnchorsStyle', "arrow1");
+        this.CustomAnchor = vscode.workspace.getConfiguration('jupyterNotebook.tableOfContents').get('customReverseAnchor', "&#9757;");
+        this.MinLevel = vscode.workspace.getConfiguration('jupyterNotebook.tableOfContents').get('minHeaderLevel', 2);
+        this.MaxLevel = vscode.workspace.getConfiguration('jupyterNotebook.tableOfContents').get('maxHeaderLevel', 4);
+        this.AutoSave = vscode.workspace.getConfiguration('jupyterNotebook.tableOfContents').get('autoSave', false);
         this.AnchorStrings = ["&#8593;", "&#9650;", this.CustomAnchor];
+        this.showHtml = vscode.workspace.getConfiguration('jupyterNotebook.tableOfContents').get('showOnHtml', false);
     }
   
     public Read(lineText: string) {
