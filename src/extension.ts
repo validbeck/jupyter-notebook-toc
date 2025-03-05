@@ -130,7 +130,7 @@ export class TocGenerator {
                 
                             // Remove lines with anchor links (e.g., <a id='tocX_'></a>) and clean up empty lines
                             docArray = docArray.reduce<string[]>((acc, line) => {
-                                const isAnchor = line.trim().match(/^<a id='toc\d+_'><\/a>$/);
+                                const isAnchor = line.trim().match(/^<a id='toc(\d+_?)+'><\/a>$/);
                                 const isEmpty = line.trim() === '';
                 
                                 // If the line is not an anchor, process further
