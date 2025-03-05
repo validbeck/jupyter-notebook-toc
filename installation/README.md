@@ -12,6 +12,7 @@ Once the extension is installed and enabled, to generate a table of contents for
 
 ## Installation
 
+> [!NOTE]  
 > Refer to the releases for the available/latest versions: https://github.com/validbeck/jupyter-notebook-toc/releases
 
 1. Download the extension version you'd like to use.
@@ -19,7 +20,7 @@ Once the extension is installed and enabled, to generate a table of contents for
 2. Follow the [VS Code instructions on how to install from a `.vsix` file](https://code.visualstudio.com/docs/editor/extension-marketplace#_install-from-a-vsix), e.g.: 
 
 ```bash
-code --install-extension jn-toc-1.0.0.vsix
+code --install-extension jn-toc-1.0.1.vsix
 ```
 
 <details>
