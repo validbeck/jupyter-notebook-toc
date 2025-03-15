@@ -47,6 +47,55 @@ export class TocGenerator {
     private _tocDisclimer: string = "<!-- THIS CELL WILL BE REPLACED ON TOC UPDATE. DO NOT WRITE YOUR TEXT IN THIS CELL -->";
     // private _tocHeaderAnchor: string = "<a id='toc0_'></a>";
     private _endAnchor: string = "</a>";
+    private cellCleanup(
+        cell: vscode.NotebookCell, 
+        cellIndex: number, 
+        uri: vscode.Uri, 
+        editor: vscode.NotebookEditor | undefined, 
+        lineHeaders: List<Header>
+    ) {
+        if (vscode.NotebookCellKind[cell.kind] == 'Markup') {
+            let docText = cell.document.getText();
+            let docArray: string[] = docText.split(/\r?\n/); // Explicitly type as string[]
+            let isCellUpdate = false;
+    
+            // Restore headers and remove anchors
+            lineHeaders.ForEach(header => {
+                if (header != undefined && header.cellNum != undefined && header.cellNum == cellIndex) {
+                    let ht = "#".repeat(header.origLevel);
+                    let lineText = `${ht} ${header.title}`;
+                    docArray[header.lineNumber] = lineText; // Restore original header text
+                    isCellUpdate = true;
+                }
+            });
+    
+            // Remove lines with anchor links (e.g., <a id='tocX_'></a>) and clean up empty lines
+            docArray = docArray.reduce<string[]>((acc, line) => {
+                const isAnchor = line.trim().match(/^<a id='toc(\d+_?)+'><\/a>$/);
+                const isEmpty = line.trim() === '';
+    
+                // If the line is not an anchor, process further
+                if (!isAnchor) {
+                    if (!(isEmpty && acc[acc.length - 1]?.trim() === '')) {
+                        acc.push(line); // Avoid consecutive empty lines
+                    }
+                }
+                return acc;
+            }, []);
+    
+            // Remove leading empty lines
+            while (docArray.length > 0 && docArray[0].trim() === '') {
+                docArray.shift();
+            }
+    
+            // Reassemble the cell content
+            docText = docArray.join("\n");
+    
+            if (isCellUpdate && editor != undefined) {
+                this.updateCell(uri, docText, cellIndex);
+            }
+        }
+    }
     
     process(remove: boolean = false){
         let editor = vscode.window.activeNotebookEditor;
@@ -113,47 +162,7 @@ export class TocGenerator {
 
                 if (remove) { // Remove TOC cell and anchors
                     cells.forEach((cell, cellIndex) => { // Iterate through cells with proper indexing
-                        if (vscode.NotebookCellKind[cell.kind] == 'Markup') {
-                            let docText = cell.document.getText();
-                            let docArray: string[] = docText.split(/\r?\n/); // Explicitly type as string[]
-                            let isCellUpdate = false;
-                
-                            // Restore headers and remove anchors
-                            lineHeaders.ForEach(header => {
-                                if (header != undefined && header.cellNum != undefined && header.cellNum == cellIndex) {
-                                    let ht = "#".repeat(header.origLevel);
-                                    let lineText = `${ht} ${header.title}`;
-                                    docArray[header.lineNumber] = lineText; // Restore original header text
-                                    isCellUpdate = true;
-                                }
-                            });
-                
-                            // Remove lines with anchor links (e.g., <a id='tocX_'></a>) and clean up empty lines
-                            docArray = docArray.reduce<string[]>((acc, line) => {
-                                const isAnchor = line.trim().match(/^<a id='toc(\d+_?)+'><\/a>$/);
-                                const isEmpty = line.trim() === '';
-                
-                                // If the line is not an anchor, process further
-                                if (!isAnchor) {
-                                    if (!(isEmpty && acc[acc.length - 1]?.trim() === '')) {
-                                        acc.push(line); // Avoid consecutive empty lines
-                                    }
-                                }
-                                return acc;
-                            }, []);
-                
-                            // Remove leading empty lines
-                            while (docArray.length > 0 && docArray[0].trim() === '') {
-                                docArray.shift();
-                            }
-                
-                            // Reassemble the cell content
-                            docText = docArray.join("\n");
-                
-                            if (isCellUpdate && editor != undefined) {
-                                this.updateCell(uri, docText, cellIndex);
-                            }
-                        }
+                        this.cellCleanup(cell, cellIndex, uri, editor, lineHeaders);
                     });
                 
                     // Remove the TOC cell
