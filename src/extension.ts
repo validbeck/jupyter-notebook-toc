@@ -131,6 +131,11 @@ export class TocGenerator {
                         });
 
                         if (!remove) { // format filtered levels of headers
+                            // First, clean up any existing TOC-related artifacts in the cell
+                            cells.forEach((cell, cellIndex) => {
+                                this.cellCleanup(cell, cellIndex, uri, editor, lineHeaders);
+                            });
+
                             headers.ForEach(header => {	/* edit cell content for each header in current cell */
                                 if (header != undefined && header.cellNum != undefined && header.cellNum == cellIndex) {                                
                                     let ht = "#".repeat(header.origLevel); // Generate Markdown header level
