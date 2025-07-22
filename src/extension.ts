@@ -67,6 +67,11 @@ export class TocGenerator {
                 // edit headers in document
                 cells.forEach((cell: vscode.NotebookCell, cellIndex: number)  => {     		
                     if (vscode.NotebookCellKind[cell.kind] == 'Markup') {
+                        // Skip the TOC cell itself - we don't want to modify the TOC cell
+                        if (this._config.TocCellNum !== undefined && cellIndex === this._config.TocCellNum) {
+                            return; // Skip this cell
+                        }
+                        
                         let docText = cell.document.getText();
                         let docArray = docText.split(/\r?\n/);
                         let isCellUpdate = false;
@@ -270,6 +275,11 @@ export class TocGenerator {
         
         cells.forEach((cell, cellIndex)  => {
             if (vscode.NotebookCellKind[cell.kind] == 'Markup') {
+                // Skip the TOC cell itself - we don't want to add anchors to the TOC cell
+                if (this._config.TocCellNum !== undefined && cellIndex === this._config.TocCellNum) {
+                    return; // Skip this cell
+                }
+                
                 let docText = cell.document.getText();
                 let docArray = docText.split(/\r?\n/);
 
