@@ -1,3 +1,5 @@
+
+
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
@@ -65,29 +67,49 @@ export class TocGenerator {
                 console.log(tocSummary);
                 
                 // edit headers in document
-                cells.forEach((cell, cellIndex)  => {     		
+                cells.forEach((cell: vscode.NotebookCell, cellIndex: number)  => {     		
                     if (vscode.NotebookCellKind[cell.kind] == 'Markup') {
+                        // Skip the TOC cell itself - we don't want to modify the TOC cell
+                        if (this._config.TocCellNum !== undefined && cellIndex === this._config.TocCellNum) {
+                            return; // Skip this cell
+                        }
+                        
                         let docText = cell.document.getText();
                         let docArray = docText.split(/\r?\n/);
                         let isCellUpdate = false;
 
-                        // clear all headers formatting in cell
-                        lineHeaders.ForEach(header => {	/* edit cell content for each header in current cell */
+                        // CRITICAL: Always remove ALL existing anchors first
+                        // This is the key fix - we must clean before processing
+                        docArray = this.removeAllAnchors(docArray);
+                        isCellUpdate = true;
+
+                        // Now restore headers to clean state
+                        // Note: After removeAllAnchors, line numbers may have shifted
+                        // We need to find the headers in the cleaned array
+                        lineHeaders.ForEach((header) => {
                             if (header != undefined && header.cellNum != undefined && header.cellNum == cellIndex) {
                                 let ht = "#".repeat(header.origLevel);
                                 let lineText = `${ht} ${header.title}`;
-                                docArray[header.lineNumber] = lineText;
-                                isCellUpdate = true;
+                                
+                                // Find the header in the cleaned array by content matching
+                                // This is more robust than relying on line numbers that may have shifted
+                                for (let i = 0; i < docArray.length; i++) {
+                                    if (docArray[i].trim().startsWith(ht) && docArray[i].includes(header.title)) {
+                                        docArray[i] = lineText;
+                                        break;
+                                    }
+                                }
                             }
                         });
 
-                        if (!remove) { // format filtered levels of headers
-                            headers.ForEach(header => {	/* edit cell content for each header in current cell */
+                        if (!remove) { 
+                            // Add new anchors only for headers that belong to this cell
+                            headers.ForEach((header) => {
                                 if (header != undefined && header.cellNum != undefined && header.cellNum == cellIndex) {                                
                                     let ht = "#".repeat(header.origLevel); // Generate Markdown header level
 
-                                    // Use anchorHeader to generate only the anchor, not the full title
-                                    let anchor = this._config.Anchor ? `<a id='${header.anchor}'></a>` : ""; // Anchor separately
+                                    // Generate anchor only if anchor feature is enabled
+                                    let anchor = this._config.Anchor ? `<a id='${header.anchor}'></a>` : ""; 
                                     let title = header.title; // Keep the title clean without additional anchors
                                     
                                     // Construct the header line with optional numbering
@@ -95,10 +117,20 @@ export class TocGenerator {
                                         ? `${ht} ${header.numberingString} ${title}`
                                         : `${ht} ${title}`;
                                     
-                                    // Combine the anchor and header line, ensuring correct formatting
-                                    docArray[header.lineNumber] = `${anchor}\n\n${headerLine}`;  
-
-                                    isCellUpdate = true;
+                                    // Find the header in the cleaned array by content matching
+                                    // This is more robust than relying on line numbers that may have shifted
+                                    for (let i = 0; i < docArray.length; i++) {
+                                        if (docArray[i].trim().startsWith(ht) && docArray[i].includes(title)) {
+                                            // Combine the anchor and header line, ensuring correct formatting
+                                            // Only add anchor if it's enabled and not empty
+                                            if (anchor) {
+                                                docArray[i] = `${anchor}\n\n${headerLine}`;  
+                                            } else {
+                                                docArray[i] = headerLine;
+                                            }
+                                            break;
+                                        }
+                                    }
                                 }
                             });	
                         }
@@ -112,40 +144,32 @@ export class TocGenerator {
                 });
 
                 if (remove) { // Remove TOC cell and anchors
-                    cells.forEach((cell, cellIndex) => { // Iterate through cells with proper indexing
+                    cells.forEach((cell: vscode.NotebookCell, cellIndex: number) => { // Iterate through cells with proper indexing
                         if (vscode.NotebookCellKind[cell.kind] == 'Markup') {
                             let docText = cell.document.getText();
                             let docArray: string[] = docText.split(/\r?\n/); // Explicitly type as string[]
                             let isCellUpdate = false;
                 
                             // Restore headers and remove anchors
-                            lineHeaders.ForEach(header => {
+                            lineHeaders.ForEach((header) => {
                                 if (header != undefined && header.cellNum != undefined && header.cellNum == cellIndex) {
                                     let ht = "#".repeat(header.origLevel);
                                     let lineText = `${ht} ${header.title}`;
-                                    docArray[header.lineNumber] = lineText; // Restore original header text
-                                    isCellUpdate = true;
+                                    
+                                    // Find the header in the array by content matching
+                                    // This is more robust than relying on line numbers that may have shifted
+                                    for (let i = 0; i < docArray.length; i++) {
+                                        if (docArray[i].trim().startsWith(ht) && docArray[i].includes(header.title)) {
+                                            docArray[i] = lineText; // Restore original header text
+                                            isCellUpdate = true;
+                                            break;
+                                        }
+                                    }
                                 }
                             });
                 
-                            // Remove lines with anchor links (e.g., <a id='tocX_'></a>) and clean up empty lines
-                            docArray = docArray.reduce<string[]>((acc, line) => {
-                                const isAnchor = line.trim().match(/^<a id='toc(\d+_?)+'><\/a>$/);
-                                const isEmpty = line.trim() === '';
-                
-                                // If the line is not an anchor, process further
-                                if (!isAnchor) {
-                                    if (!(isEmpty && acc[acc.length - 1]?.trim() === '')) {
-                                        acc.push(line); // Avoid consecutive empty lines
-                                    }
-                                }
-                                return acc;
-                            }, []);
-                
-                            // Remove leading empty lines
-                            while (docArray.length > 0 && docArray[0].trim() === '') {
-                                docArray.shift();
-                            }
+                            // Remove lines with anchor links and clean up empty lines
+                            docArray = this.cleanExistingAnchors(docArray);
                 
                             // Reassemble the cell content
                             docText = docArray.join("\n");
@@ -253,6 +277,11 @@ export class TocGenerator {
         
         cells.forEach((cell, cellIndex)  => {
             if (vscode.NotebookCellKind[cell.kind] == 'Markup') {
+                // Skip the TOC cell itself - we don't want to add anchors to the TOC cell
+                if (this._config.TocCellNum !== undefined && cellIndex === this._config.TocCellNum) {
+                    return; // Skip this cell
+                }
+                
                 let docText = cell.document.getText();
                 let docArray = docText.split(/\r?\n/);
 
@@ -263,6 +292,11 @@ export class TocGenerator {
                     if (isEmptyOrWhitespace(aLine) || isCodeBlockIndent(aLine)) continue;
                     
                     let lineText = aLine.trim();
+                    
+                    // Skip standalone anchor tags - we don't want to process them as headers
+                    if (lineText.match(/^<a id=['"]?toc[\d_]+['"]?><\/a>$/)) {
+                        continue;
+                    }
                                         
                     //If we are within a triple-backtick code blocks, then ignore
                     if(lineText.startsWith("```")) {
@@ -280,6 +314,29 @@ export class TocGenerator {
                         // skip not valid strings (error || more than 6 #)
                         if (headerLevel < 1 || headerLevel > MD_MAX_HEADERS_LEVEL) {
                             continue
+                        }
+                        
+                        // Skip headers that already contain anchor tags
+                        // This prevents processing headers that are already formatted
+                        if (lineText.includes('<a id=') || lineText.includes('<a id="')) {
+                            continue;
+                        }
+                        
+                        // Skip headers that are followed by anchor tags on the next line
+                        if (lineNumber + 1 < docArray.length) {
+                            const nextLine = docArray[lineNumber + 1].trim();
+                            if (nextLine.match(/^<a id=['"]?toc[\d_]+['"]?><\/a>$/)) {
+                                continue;
+                            }
+                        }
+                        
+                        // Skip headers that are preceded by anchor tags on the previous line
+                        // This prevents processing headers that already have anchors placed before them
+                        if (lineNumber > 0) {
+                            const prevLine = docArray[lineNumber - 1].trim();
+                            if (prevLine.match(/^<a id=['"]?toc[\d_]+['"]?><\/a>$/)) {
+                                continue;
+                            }
                         }
                         
                         let [title, cleanTitle, isContainLinks] = this.normalizeHeader(lineText, headerLevel, this._endAnchor);
@@ -311,8 +368,8 @@ export class TocGenerator {
         }
         
         // normalize levels, add numbering with string
-        lines.Where(x => x != undefined && x.level >= this._config.MinLevel && x.level <= this._config.MaxLevel).ForEach(header => {
-            if (header != undefined) {	/* Why? */ 
+        lines.Where((x) => x != undefined && x.level >= this._config.MinLevel && x.level <= this._config.MaxLevel).ForEach((header) => {
+            if (header != undefined) {   /* Why? */ 
                 
                 header.level = header.level - this._config.MinLevel + 1;	// scale level to min level
 
@@ -351,7 +408,7 @@ export class TocGenerator {
             tocSummary = "::: {.content-hidden when-format=\"html\"}\n" + tocSummary;
         }
         
-        headers.ForEach((header, idx) => {
+        headers.ForEach((header) => {
             if (header != undefined) {
                 let title = header.cleanTitle; 
                 let tocLine = "";
@@ -384,6 +441,91 @@ export class TocGenerator {
     }    
 
     /**
+     * Clean up existing anchor tags from a cell's content
+     * @param docArray Array of lines in the cell
+     * @returns Updated array with anchors removed and empty lines cleaned up
+     */
+    private cleanExistingAnchors(docArray: string[]): string[] {
+        // Remove anchor tags and clean up empty lines
+        let cleanedArray = docArray.reduce<string[]>((acc, line, index) => {
+            // More comprehensive anchor detection - catch various formats
+            const isAnchor = line.trim().match(/^<a id=['"]?toc[\d_]+['"]?><\/a>$/);
+            const isEmpty = line.trim() === '';
+            
+            // Skip anchor lines completely
+            if (isAnchor) {
+                return acc;
+            }
+            
+            // Avoid consecutive empty lines
+            if (isEmpty && acc.length > 0 && acc[acc.length - 1].trim() === '') {
+                return acc;
+            }
+            
+            acc.push(line);
+            return acc;
+        }, []);
+        
+        // Remove leading empty lines
+        while (cleanedArray.length > 0 && cleanedArray[0].trim() === '') {
+            cleanedArray.shift();
+        }
+        
+        // Remove trailing empty lines
+        while (cleanedArray.length > 0 && cleanedArray[cleanedArray.length - 1].trim() === '') {
+            cleanedArray.pop();
+        }
+        
+        return cleanedArray;
+    }
+
+    /**
+     * Completely clean a cell of all existing anchors and header formatting
+     * @param docArray Array of lines in the cell
+     * @returns Updated array with all anchors and header formatting removed
+     */
+    private removeAllAnchors(docArray: string[]): string[] {
+        // Remove all anchor tags and clean up empty lines
+        let cleanedArray = docArray.reduce<string[]>((acc, line, index) => {
+            const trimmedLine = line.trim();
+            
+            // Skip standalone anchor tags completely
+            if (trimmedLine.match(/^<a id=['"]?toc[\d_]+['"]?><\/a>$/)) {
+                return acc;
+            }
+            
+            // Remove anchor tags from within lines (like headers that contain anchors)
+            let cleanedLine = line.replace(/<a id=['"]?toc[\d_]+['"]?><\/a>\s*/g, '');
+            
+            // Remove any numbering from headers (like "1.2.3 Section Title")
+            cleanedLine = cleanedLine.replace(/^#+\s+([0-9]+\.+)+\s*/, (match) => {
+                // Keep only the # symbols and add a space
+                return match.replace(/[0-9]+\.+/g, '').replace(/\s+/g, ' ');
+            });
+            
+            // Skip empty lines if the previous line was also empty
+            if (cleanedLine.trim() === '' && acc.length > 0 && acc[acc.length - 1].trim() === '') {
+                return acc;
+            }
+            
+            acc.push(cleanedLine);
+            return acc;
+        }, []);
+        
+        // Remove leading empty lines
+        while (cleanedArray.length > 0 && cleanedArray[0].trim() === '') {
+            cleanedArray.shift();
+        }
+        
+        // Remove trailing empty lines
+        while (cleanedArray.length > 0 && cleanedArray[cleanedArray.length - 1].trim() === '') {
+            cleanedArray.pop();
+        }
+        
+        return cleanedArray;
+    }
+
+    /**
      * 
      * @returns [ cleaned from numbering and anchor header sting (to keep in Cells), 
      *            cleaned from links title (to push to TOC),
@@ -401,6 +543,10 @@ export class TocGenerator {
         
         // remove hashtag
         let title: string = validHeader.substring(headerLevel + 1);
+
+        // remove existing anchor tags that might be present
+        // This handles cases where anchors are already in the header line
+        title = title.replace(/<a id=['"]?toc[\d_]+['"]?><\/a>\s*/, '');
 
         // remove anchor
         if (title.indexOf(endAnchor) > 0) {
@@ -607,7 +753,13 @@ class Header {
 
     public setAnchor() {
         if (this.numberingString != "") {
-            this.anchor = "toc" + this.numberingString.split('.').join('_');	// replaceAll
+            // Generate anchor ID based on numbering, ensuring it ends with underscore
+            // This creates anchors like "toc1_", "toc1_2_", "toc1_2_3_"
+            this.anchor = "toc" + this.numberingString.split('.').join('_') + "_";
+        } else {
+            // Fallback for headers without numbering - use a simple counter
+            // This should rarely happen but provides a safety net
+            this.anchor = "toc" + Math.random().toString(36).substr(2, 9) + "_";
         }
     }
 }
